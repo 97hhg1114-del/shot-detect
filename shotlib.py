@@ -19,12 +19,44 @@ white-flash transitions, occasional 1s cross-dissolves). Other material may want
 different thresholds -- the ones that matter most are HARD_DELTA (hard cuts),
 DIS_MIN (dissolves) and FLASH_SIM (flash tolerance).
 """
-import os, subprocess, json
+import os, sys, subprocess, json
 import numpy as np
 
 # a windowed build has no console, so every ffmpeg call would flash its own
 # unless we suppress it. Harmless for the CLI -- output is piped either way.
 NOWIN = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+
+def _find_exe(name):
+    """Absolute path of ffmpeg/ffprobe, never a bare name.
+
+    CreateProcess on Windows looks in the exe's own folder and the current
+    directory *before* PATH, so a bare "ffmpeg" would happily run a planted
+    ffmpeg.exe sitting next to a downloaded build. Resolve it ourselves:
+    the bundled bin/ first, then each PATH entry, skipping "." entirely.
+    """
+    exts = [".exe", ""] if os.name == "nt" else [""]
+    here = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    dirs = [os.path.join(here, "bin")]
+    dirs += [d for d in os.environ.get("PATH", "").split(os.pathsep)
+             if d and d not in (".", os.curdir)]
+    for d in dirs:
+        for ext in exts:
+            p = os.path.join(d, name + ext)
+            if os.path.isfile(p):
+                return os.path.abspath(p)
+    raise FileNotFoundError(f"{name} not found (bundled bin/ or PATH)")
+
+
+_EXE = {}
+
+
+def exe(name):
+    """Resolved once, lazily -- so a missing ffmpeg surfaces in the GUI log,
+    not as an import-time crash before the window exists."""
+    if name not in _EXE:
+        _EXE[name] = _find_exe(name)
+    return _EXE[name]
 
 W, H = 48, 85
 BPF = W * H * 3
@@ -59,7 +91,7 @@ DIS_MARGIN  = 26     # keep splits this far from an existing boundary
 
 def probe(vid):
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+        [exe("ffprobe"), "-v", "error", "-select_streams", "v:0",
          "-show_entries", "stream=r_frame_rate:format=duration",
          "-of", "json", vid],
         capture_output=True, text=True, encoding="utf-8", **NOWIN).stdout
@@ -69,7 +101,7 @@ def probe(vid):
 
 
 def load_small(vid):
-    cmd = ["ffmpeg", "-v", "error", "-i", vid, "-map", "0:v:0",
+    cmd = [exe("ffmpeg"), "-v", "error", "-i", vid, "-map", "0:v:0",
            "-vf", f"scale={W}:{H}:flags=bilinear",
            "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,

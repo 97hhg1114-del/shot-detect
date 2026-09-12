@@ -27,6 +27,27 @@ def find_videos(src, pattern="*.mp4"):
     return sorted(glob.glob(os.path.join(src, pattern)))
 
 
+SAFE_ID = re.compile(r"^[0-9A-Za-z가-힣_\-]+$")
+
+
+def _checked(info, ep, src):
+    """Validate one shots.json entry. Returns (fps, picks, bounds, video name)."""
+    if not SAFE_ID.match(str(ep)):
+        raise ValueError("에피소드 id에 경로 문자가 있음")
+    vid_name = os.path.basename(str(info.get("file", "")))
+    if not vid_name or not os.path.isfile(os.path.join(src, vid_name)):
+        raise ValueError("영상 파일이 원본 폴더에 없음")
+    fps = float(info["fps"])
+    if not fps > 0:
+        raise ValueError("fps")
+    picks = [int(p) for p in info["picks"]]
+    bounds = [(int(s), int(e)) for s, e in info["bounds"]]
+    if len(picks) != len(bounds) or any(p < 0 for p in picks) or \
+            any(not 0 <= s < e for s, e in bounds):
+        raise ValueError("picks/bounds")
+    return fps, picks, bounds, vid_name
+
+
 def still_name(tag, k, frames, fps, frames_in_name):
     dur = frames / fps
     return (f"{tag}_cut{k:03d}_{dur:.2f}s_{frames}f.jpg" if frames_in_name
@@ -71,18 +92,31 @@ def extract(rep, src, out_root, prefix="", quality=2, frames_in_name=False,
         if should_stop():
             log("[중단됨]")
             break
+        # shots.json may not be ours (shared folder, someone else's zip), so
+        # nothing in it is allowed to choose a path: the episode id must be a
+        # plain name, the video must sit inside src, and the output folder must
+        # resolve to somewhere under out_root.
+        try:
+            fps, picks, bounds, vid_name = _checked(info, ep, src)
+        except ValueError as exc:
+            log(f"!! {ep!r}: shots.json 항목이 이상해서 건너뜀 ({exc})")
+            continue
         tag = f"{prefix}_{ep}" if prefix else ep
-        outdir = os.path.join(out_root, tag)
+        outdir = os.path.realpath(os.path.join(out_root, tag))
+        if not outdir.startswith(os.path.realpath(out_root) + os.sep):
+            log(f"!! {ep}: 출력 경로가 저장 위치 밖이라 건너뜀")
+            continue
         os.makedirs(outdir, exist_ok=True)
-        for old in os.listdir(outdir):          # shot counts change between runs
-            if old.endswith(".jpg"):
+        # shot counts change between runs -- but only clear stills *we* named,
+        # never whatever else the user keeps in that folder
+        mine = re.compile(r"^" + re.escape(tag) + r"_cut\d{3}_[\d.]+s(_\d+f)?\.jpg$")
+        for old in os.listdir(outdir):
+            if mine.match(old):
                 os.remove(os.path.join(outdir, old))
         shutil.rmtree(tmp, ignore_errors=True)
         os.makedirs(tmp)
-
-        fps, picks = info["fps"], info["picks"]
         names = []
-        for k, (s, e) in enumerate(info["bounds"]):
+        for k, (s, e) in enumerate(bounds):
             names.append(still_name(tag, k, e - s, fps, frames_in_name))
             rows.append([ep, k, round(s / fps, 3), round((e - s) / fps, 3),
                          s, e, names[-1]])
@@ -90,7 +124,7 @@ def extract(rep, src, out_root, prefix="", quality=2, frames_in_name=False,
         # one decode pass grabs every needed frame, rather than seeking per shot
         expr = "+".join(f"eq(n\\,{p})" for p in picks)
         r = subprocess.run(
-            ["ffmpeg", "-v", "error", "-i", os.path.join(src, info["file"]),
+            [shotlib.exe("ffmpeg"), "-v", "error", "-i", os.path.join(src, vid_name),
              "-map", "0:v:0", "-vf", f"select='{expr}'", "-vsync", "0",
              "-q:v", str(quality), os.path.join(tmp, "f_%04d.jpg")],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
