@@ -8,7 +8,7 @@
 > model, no GPU. Ships with a QC tool because shot detection is never 100% and you need to see
 > what it got wrong.
 
-**다운로드** — [v1.0.0 실행 파일](https://github.com/97hhg1114-del/shot-detect/releases/latest) (184MB, 파이썬·ffmpeg 설치 불필요)
+**다운로드** — [v1.0.1 실행 파일](https://github.com/97hhg1114-del/shot-detect/releases/latest) (184MB, 파이썬·ffmpeg 설치 불필요)
 
 ![shot-detect GUI](docs/gui.png)
 
