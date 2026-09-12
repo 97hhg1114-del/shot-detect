@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# 도구가 만들어 내는 결과물
+shots.json
+shot_list.csv
+qc_sheet_*.png
+qc_zoom_*.png
+qc_flags_*.png
+bin/
