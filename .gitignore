@@ -17,3 +17,4 @@ qc_sheet_*.png
 qc_zoom_*.png
 qc_flags_*.png
 bin/
+_build/
